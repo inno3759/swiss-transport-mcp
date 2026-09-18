@@ -436,6 +436,7 @@ def create_transport_client(
     occupancy_key: str | None = None,
     formation_key: str | None = None,
     ojp_fare_key: str | None = None,
+    ojp_trip_key: str | None = None,
 ) -> TransportAPIClient:
     """
     Erstellt einen fertig konfigurierten TransportAPIClient.
@@ -487,11 +488,23 @@ def create_transport_client(
             )
         )
 
+    if ojp_trip_key:
+        client.register_api(
+            APIConfig(
+                name="ojp_trip",
+                base_url="https://api.opentransportdata.swiss/ojp20",
+                api_key=ojp_trip_key,
+                rate_limit=RateLimiter(max_requests=5, window_seconds=60),
+                cache_ttl=300,
+                content_type="application/xml",
+            )
+        )
+
     if ojp_fare_key:
         client.register_api(
             APIConfig(
                 name="ojp_fare",
-                base_url="https://api.opentransportdata.swiss/ojp20",
+                base_url="https://api.opentransportdata.swiss/ojpfare",
                 api_key=ojp_fare_key,
                 rate_limit=RateLimiter(max_requests=5, window_seconds=60),
                 cache_ttl=1800,

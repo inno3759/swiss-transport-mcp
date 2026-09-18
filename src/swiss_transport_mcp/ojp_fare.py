@@ -23,6 +23,12 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 
 from .api_infrastructure import APIError, TransportAPIClient
+from .ojp_client import (
+    _build_place_ref,
+    build_location_request,
+    is_stop_ref,
+    parse_location_response,
+)
 
 # OJP 2.0 Namespaces
 OJP_NS = {
@@ -62,12 +68,21 @@ async def get_fare_info(
     if departure_time is None:
         departure_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
+    # Schritt 0: Namen zu Stop-IDs auflösen.
+    # OJP 2.0 kennt keine Namens-Referenz innerhalb von PlaceRef; ein
+    # <Name>-only PlaceRef wird mit HTTP 400 abgelehnt.
+    try:
+        origin_ref = await _resolve_place(client, origin)
+        destination_ref = await _resolve_place(client, destination)
+    except (APIError, ValueError) as e:
+        return f"⚠️ Ort konnte nicht aufgelöst werden: {e}"
+
     # Schritt 1: Trip anfragen (Routenberechnung)
-    trip_xml = _build_trip_request(origin, destination, departure_time, requestor_ref)
+    trip_xml = _build_trip_request(origin_ref, destination_ref, departure_time, requestor_ref)
 
     try:
         trip_response = await client.post_xml(
-            "ojp_fare",
+            "ojp_trip",
             trip_xml,
             cache_key_params={
                 "type": "trip",
@@ -159,6 +174,23 @@ async def get_simple_fare(
 # =============================================================================
 
 
+async def _resolve_place(client: TransportAPIClient, value: str) -> str:
+    """Gibt eine Stop-ID zurück; löst freie Ortsnamen über OJP auf."""
+    if is_stop_ref(value):
+        return value
+    xml_text = await client.post_xml(
+        "ojp_trip",
+        build_location_request(value, limit=1),
+        cache_key_params={"type": "loc", "q": value},
+    )
+    places = parse_location_response(xml_text)
+    for place in places:
+        stop_id = place.get("stop_id")
+        if stop_id:
+            return stop_id
+    raise ValueError(f"kein Haltestellen-Treffer für {value!r}")
+
+
 def _build_trip_request(origin: str, destination: str, dep_time: str, requestor_ref: str) -> str:
     """
     Baut einen OJP 2.0 TripRequest als XML.
@@ -176,18 +208,21 @@ def _build_trip_request(origin: str, destination: str, dep_time: str, requestor_
                 <siri:RequestTimestamp>{datetime.now().isoformat()}</siri:RequestTimestamp>
                 <Origin>
                     <PlaceRef>
-                        <Name><Text>{origin}</Text></Name>
+                        {_build_place_ref(origin)}
                     </PlaceRef>
                     <DepArrTime>{dep_time}</DepArrTime>
                 </Origin>
                 <Destination>
                     <PlaceRef>
-                        <Name><Text>{destination}</Text></Name>
+                        {_build_place_ref(destination)}
                     </PlaceRef>
                 </Destination>
                 <Params>
                     <NumberOfResults>1</NumberOfResults>
-                    <UseRealtimeData>false</UseRealtimeData>
+                    <IncludeIntermediateStops>false</IncludeIntermediateStops>
+                    <IncludeRealtimeData>false</IncludeRealtimeData>
+                    <IncludeLegProjection>false</IncludeLegProjection>
+                    <IncludeTurnDescription>false</IncludeTurnDescription>
                 </Params>
             </OJPTripRequest>
         </siri:ServiceRequest>

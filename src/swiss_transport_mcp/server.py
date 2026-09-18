@@ -71,6 +71,7 @@ def _build_ext_client() -> TransportAPIClient:
         occupancy_key=os.environ.get("OCCUPANCY_API_KEY"),
         formation_key=os.environ.get("FORMATION_API_KEY"),
         ojp_fare_key=os.environ.get("OJP_FARE_API_KEY"),
+        ojp_trip_key=os.environ.get("TRANSPORT_API_KEY"),
     )
 
 
